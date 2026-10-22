@@ -175,13 +175,19 @@ flag{root_via_suid}
 ## 📁 GitHub Pages Deployment Guide
 
 To deploy this project directly to **GitHub Pages**:
-1. Commit the project root files (`index.html`, `README.md`, `.nojekyll`):
-   ```bash
-   git add .
-   git commit -m "Update CTF report with Kill-Chain matrix and full technical lifecycle"
-   git remote add origin https://github.com/MohammedRifad123/killing-dark-access.git
-   git branch -M main
-   git push -u origin main
-   ```
-2. In GitHub, go to **Settings** > **Pages** and verify the source is set to `Deploy from a branch` on `main` / `/ (root)`.
-3. The site will be available at `https://mohammedrifad123.github.io/killing-dark-access/`.
+1. In GitHub, go to **Settings** > **Pages** and verify the source is set to `Deploy from a branch` on `main` / `/ (root)`.
+2. The site will be available at `https://mohammedrifad123.github.io/killing-dark-access/`.
+
+---
+
+## ⚡ Vercel Deployment Guide
+
+To host this site on Vercel under your account (`rifad2`):
+
+### 1-Click Import (Recommended)
+1. Open this direct import link:  
+   👉 **[Deploy on Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FMohammedRifad123%2Fkilling-dark-access)**
+2. Select your Vercel account (`rifad2`).
+3. Under **Project Name**, keep `killing-dark-access`.
+4. Click **Deploy**. Vercel will build and assign an instant production URL with automatic HTTPS and edge CDN caching. Every future `git push origin main` will automatically redeploy!
+
